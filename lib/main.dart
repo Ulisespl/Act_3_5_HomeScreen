@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 void main() {
   runApp(MyApp());
@@ -57,7 +59,7 @@ class HomeScreen extends StatelessWidget {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => MyHomePage()),
+                      MaterialPageRoute(builder: (context) => MoviesPage()),
                     );
                   },
                   child: Text('Entrar a la App'),
@@ -84,88 +86,37 @@ class MyAppState extends ChangeNotifier {
   }
 }
 
-class MyHomePage extends StatefulWidget {
+class MoviesPage extends StatefulWidget {
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  _MoviesPageState createState() => _MoviesPageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  var selectedIndex = 0;
+class _MoviesPageState extends State<MoviesPage> {
+  List<dynamic> movies = [];
+  final String defaultImage = "./images/default.jpg";
 
   @override
-  Widget build(BuildContext context) {
-    Widget page;
-    switch (selectedIndex) {
-      case 0:
-        page = MoviesPage();
-        break;
-      case 1:
-        page = FavoritesPage();
-        break;
-      default:
-        throw UnimplementedError('no widget for $selectedIndex');
-    }
-
-    return Scaffold(
-      body: Row(
-        children: [
-          SafeArea(
-            child: NavigationRail(
-              extended: MediaQuery.of(context).size.width >= 600,
-              destinations: [
-                NavigationRailDestination(
-                  icon: Icon(Icons.movie),
-                  label: Text('Películas'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.favorite),
-                  label: Text('Favoritos'),
-                ),
-              ],
-              selectedIndex: selectedIndex,
-              onDestinationSelected: (value) {
-                setState(() {
-                  selectedIndex = value;
-                });
-              },
-            ),
-          ),
-          Expanded(
-            child: Container(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              child: page,
-            ),
-          ),
-        ],
-      ),
-    );
+  void initState() {
+    super.initState();
+    fetchMovies();
   }
-}
 
-class MoviesPage extends StatelessWidget {
-  final List<Map<String, String>> movies = [
-    {
-      'title': 'Inception',
-      'image': './images/inception.jpg',
-      'genre': 'Sci-Fi',
-      'duration': '148 min',
-      'year': '2010'
-    },
-    {
-      'title': 'Interstellar',
-      'image': './images/interstellar.jpg',
-      'genre': 'Sci-Fi',
-      'duration': '169 min',
-      'year': '2014'
-    },
-    {
-      'title': 'The Dark Knight',
-      'image': './images/dark_knight.jpg',
-      'genre': 'Action',
-      'duration': '152 min',
-      'year': '2008'
+  Future<void> fetchMovies() async {
+    final String apiKey = "d9f99d6182bf6d96b0838b0eaaf60fe2";
+    final String hash = "e36b33494b3ab370c2e7c31a9152ec1b";
+    final String ts = "1";
+    final String url = "http://gateway.marvel.com/v1/public/characters?apikey=$apiKey&hash=$hash&ts=$ts";
+
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> data = json.decode(response.body);
+      setState(() {
+        movies = data['data']['results'];
+      });
+    } else {
+      throw Exception('Error al cargar los datos de la API');
     }
-  ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -173,53 +124,51 @@ class MoviesPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Listado de Películas'),
+        title: Text('Listado de Personajes'),
         backgroundColor: Colors.black,
       ),
-      body: ListView.builder(
-        itemCount: movies.length,
-        itemBuilder: (context, index) {
-          final movie = movies[index];
-          final isFavorite = appState.favorites.contains(movie['title']);
-          return Card(
-            color: Colors.grey[900],
-            child: ListTile(
-              leading: Image.asset(movie['image']!, width: 50, height: 75, fit: BoxFit.cover),
-              title: Text(movie['title']!, style: TextStyle(color: Colors.white)),
-              subtitle: Text("${movie['genre']} | ${movie['duration']} | ${movie['year']}", style: TextStyle(color: Colors.white70)),
-              trailing: IconButton(
-                icon: Icon(
-                  isFavorite ? Icons.favorite : Icons.favorite_border,
-                  color: isFavorite ? Colors.red : Colors.white,
-                ),
-                onPressed: () {
-                  appState.toggleFavorite(movie['title']!);
-                },
-              ),
+      body: movies.isEmpty
+          ? Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: movies.length,
+              itemBuilder: (context, index) {
+                final movie = movies[index];
+                final isFavorite = appState.favorites.contains(movie['name']);
+                final imageUrl = movie['thumbnail'] != null
+                    ? "${movie['thumbnail']['path']}.${movie['thumbnail']['extension']}"
+                    : defaultImage;
+                final releaseDate = movie.containsKey('modified') ? movie['modified'].split('T')[0] : 'Desconocida';
+                
+                return Card(
+                  color: Colors.grey[900],
+                  child: ListTile(
+                    leading: imageUrl.startsWith('http')
+                        ? Image.network(imageUrl, width: 50, height: 75, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) {
+                            return Image.asset(defaultImage, width: 50, height: 75, fit: BoxFit.cover);
+                          })
+                        : Image.asset(defaultImage, width: 50, height: 75, fit: BoxFit.cover),
+                    title: Text(movie['name'], style: TextStyle(color: Colors.white)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Descripción: ${movie['description'].isNotEmpty ? movie['description'] : 'No disponible'}", 
+                          style: TextStyle(color: Colors.white70)),
+                        Text("Fecha de lanzamiento: $releaseDate", style: TextStyle(color: Colors.white70)),
+                      ],
+                    ),
+                    trailing: IconButton(
+                      icon: Icon(
+                        isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: isFavorite ? Colors.red : Colors.white,
+                      ),
+                      onPressed: () {
+                        appState.toggleFavorite(movie['name']);
+                      },
+                    ),
+                  ),
+                );
+              },
             ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class FavoritesPage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    var appState = context.watch<MyAppState>();
-
-    if (appState.favorites.isEmpty) {
-      return Center(
-        child: Text('No tienes favoritos aún.', style: TextStyle(color: Colors.white)),
-      );
-    }
-
-    return ListView(
-      children: appState.favorites.map((movie) => ListTile(
-            leading: Icon(Icons.favorite, color: Colors.red),
-            title: Text(movie, style: TextStyle(color: Colors.white)),
-          )).toList(),
     );
   }
 }
